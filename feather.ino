@@ -5,13 +5,12 @@
 //?--------------------------------
 
 #include <Arduino.h>
-#include <WiFi.h>
 #include <SPI.h>
 #include <Ethernet.h>          // for the Ethernet FeatherWing
 #include <PubSubClient.h>      // MQTT — the feather listens and obeys
 #include <Wire.h>              // I2C, the feather talks to its friends
-#include <mavlink.h>           // flight controller comms (do not touch)
-#include <ESP32Servo.h>        // because the thrusters yearn for microseconds
+// #include <mavlink.h>           // flight controller comms (do not touch)
+#include <Servo.h>        // because the thrusters yearn for microseconds
 // #include <grammarly.h>        // Just needed this for a sec
 
 enum PinModeType {
@@ -36,12 +35,13 @@ static const int MAX_PINS = 16;
 
 ManagedPin pins[MAX_PINS];
 Servo servoOutputs[MAX_PINS];
-bool servoAttached[MAX_PINS] = {false};
 
 String rovStatus = "booting";
 
 // Change these to match your network.
 byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0x01 };
+// Set the static IP address to use if the DHCP fails to assign
+IPAddress staticIp(192, 168, 1, 100);
 IPAddress mqttServer(192, 168, 1, 200);
 EthernetClient ethClient;
 PubSubClient mqtt(ethClient);
@@ -98,9 +98,8 @@ ManagedPin* getOrCreatePin(const String& name) {
 void detachServoIfNeeded(int index) {
   if (index < 0 || index >= MAX_PINS) return;
 
-  if (servoAttached[index]) {
+  if (servoOutputs[index].attached()) {
     servoOutputs[index].detach();
-    servoAttached[index] = false;
   }
 }
 
@@ -108,11 +107,9 @@ void attachServoIfNeeded(int index, int pinNumber) {
   if (index < 0 || index >= MAX_PINS) return;
   if (pinNumber < 0) return;
 
-  if (!servoAttached[index]) {
+  if (!servoOutputs[index].attached()) {
     // behold: a ritual binding between silicon and spinny water knife
-    servoOutputs[index].setPeriodHertz(50);
-    servoOutputs[index].attach(pinNumber, 1000, 2000);
-    servoAttached[index] = true;
+    servoOutputs[index].attach(pinNumber, 1100, 1900);
   }
 }
 
@@ -312,9 +309,15 @@ void reconnectMQTT() {
 }
 
 void setup() {
+  Serial.begin(9600);
+  delay(1000);
+  Serial.println("Hello there!");
   rovStatus = "booting";
 
-  Ethernet.begin(mac);   // DHCP
+  Ethernet.init(10);  // CS pin for the feather wing.
+
+  Ethernet.begin(mac, staticIp);  // ~~DHCP~~ Static IP address.
+  Serial.println("Ethernet Began");
 
   /*
   This exact line of code is what landed me my big break working for Mcdonald's Software Engineering program.
@@ -332,10 +335,12 @@ void setup() {
   mqtt.setCallback(mqttCallback);
 
   reconnectMQTT();
+  Serial.print("MQTT Connected");
   rovStatus = "running";
 }
 
 void loop() {
+  Serial.println("Loop!");
   if (!mqtt.connected()) reconnectMQTT();
   mqtt.loop();
 
